@@ -1,15 +1,30 @@
-use crate::word::Word;
+use crate::word::{Letters, Word};
+use std::collections::HashSet;
 use std::fs::File;
-use std::io::BufRead;
-use std::io::BufReader;
-
+use std::io::{BufRead, BufReader, BufWriter, Write};
+use indicatif::{ProgressBar, ProgressIterator, ProgressStyle};
+use clap::Parser;
 
 mod word;
 
+
+/// Search for a pattern in a file and display the lines that contain it.
+#[derive(Parser)]
+struct Cli {
+    /// Path to the input file
+    #[clap(short = 'i', long = "input", default_value = "./words_alpha.txt")]
+    input_file: String,
+    /// Path to the output file
+    #[clap(short = 'o', long = "output", default_value = "./output.txt")]
+    output_file: String,
+}
+
 fn main() {
+    let args = Cli::parse();
+
     println!("Initializing...");
 
-    let word_list: Vec<String> = read_file("./word_list.txt");
+    let word_list: Vec<String> = read_file(&args.input_file);
 
     println!("\nAbstracting words... (timer starts here)\n");
 
@@ -30,23 +45,19 @@ fn main() {
     let word_pairs = find_matches(words);
 
     println!(
-        "\nDone after {} seconds.\n",
+        "\nDone after {:.2} seconds.\n",
         start_time.elapsed().as_secs_f64()
     );
-    println!("Found the following pairs:");
+    println!("Found {} word pairs", word_pairs.len());
 
-    for pair in word_pairs {
-        println!(
-            "\n-> {}\n-> {}\n-> {}\n-> {}\n-> {}",
-            pair[0], pair[1], pair[2], pair[3], pair[4]
-        );
-    }
+    write_file(&args.output_file, word_pairs);
+    println!("Saved to {}", &args.output_file);
+
 }
 
-fn find_matches(words: Vec<Word>) -> Vec<[&Word; 5]> {
+fn find_matches(words: Vec<Word>) -> Vec<[Word; 5]> {
     let len = words.len();
-    let mut percent_previous = 0;
-    let mut word_pairs: Vec<[&Word; 5]> = Vec::new();
+    let mut word_pairs: Vec<[Word; 5]> = Vec::new();
     if len <= 5 {
         println!("Too few distinct, valid words were found ({}, to be exact). Please expand your word list!", len);
         println!("Words:");
@@ -54,40 +65,46 @@ fn find_matches(words: Vec<Word>) -> Vec<[&Word; 5]> {
             println!("  {}", w);
         }
     } else {
-        for i in 4..len {
-            let percent_current = 100 * (i - 4) / (len - 4);
-            if percent_current != percent_previous {
-                println!("{}%", percent_current);
-                percent_previous = percent_current;
-            };
+        let pb = ProgressBar::new(len as u64 - 4);
+        pb.set_style(
+            ProgressStyle::with_template(
+                "[{elapsed_precise}] {percent}% [{wide_bar:.cyan/blue}] ({pos}/{len}, ETA {eta})"
+            )
+            .unwrap()
+        );
+        for i in (4..len).progress_with(pb) {
+            let word1 = &words[i];
+            let til1 = Letters::from(word1);
 
-            let w1 = &words[i];
+            for i in 3..i {
+                let word2 = &words[i];
+                if !til1.shares_letters(Letters::from(word2)) {
+                    let til2 = til1 | Letters::from(word2);
 
-            for i in 0..i {
-                let w2 = &words[i];
-                let til1 = w1.clone_letters();
+                    for i in 2..i {
+                        let word3 = &words[i];
+                        if !til2.shares_letters(Letters::from(word3)) {
+                            let til3 = til2 | Letters::from(word3);
 
-                if !til1.shares_letters(w2) {
-                    let til2 = til1.combine_letters(w2);
-                    for i in 0..i {
-                        let w3 = &words[i];
+                            for i in 1..i {
+                                let word4 = &words[i];
+                                if !til3.shares_letters(Letters::from(word4)) {
+                                    let til4 = til3 | Letters::from(word4);
 
-                        if !til2.shares_letters(w3) {
-                            let til3 = til2.combine_letters(w3);
-                            for i in 0..i {
-                                let w4 = &words[i];
-
-                                if !til3.shares_letters(w4) {
-                                    let til4 = til3.combine_letters(w4);
                                     for i in 0..i {
-                                        let w5 = &words[i];
-
-                                        if !til4.shares_letters(w5) {
-                                            println!(
-                                                " - - -\n {}\n {}\n {}\n {}\n {}",
-                                                w1, w2, w3, w4, w5
-                                            );
-                                            word_pairs.push([w1, w2, w3, w4, w5]);
+                                        let word5 = &words[i];
+                                        if !til4.shares_letters(Letters::from(word5)) {
+                                            //println!(
+                                            //    " - - -\n {}\n {}\n {}\n {}\n {}",
+                                            //    word1, word2, word3, word4, word5
+                                            //);
+                                            word_pairs.push([
+                                                word1.clone(),
+                                                word2.clone(),
+                                                word3.clone(),
+                                                word4.clone(),
+                                                word5.clone(),
+                                            ]);
                                         };
                                     }
                                 };
@@ -103,55 +120,65 @@ fn find_matches(words: Vec<Word>) -> Vec<[&Word; 5]> {
 
 fn read_file(path: &str) -> Vec<String> {
     match File::open(path) {
-        Ok(file) => {
-            let mut wl = Vec::<String>::new();
-            for line in BufReader::new(file).lines() {
-                match line {
-                    Ok(line) => {
-                        wl.push(line);
-                    }
-                    Err(_) => {}
-                };
-            }
-            wl
-        }
+        Ok(file) => BufReader::new(file)
+            .lines()
+            .filter_map(Result::ok)
+            .collect(),
         Err(error) => {
             let url = "https://gist.githubusercontent.com/cfreshman/cdcdf777450c5b5301e439061d29694c/raw/b8375870720504ecf89c1970ea4532454f12de94/wordle-allowed-guesses.txt";
-            println!("Could not read word list from file. Please get the list and save it, then change the path in /src/.\nError: {}\nURL: {})", error, url);
-            panic!();
+            panic!("Could not read word list from file. Please get the list and save it, then change the path in /src/.\nError: {}\nURL: {})", error, url);
         }
     }
+}
+
+fn write_file(path: &str, word_pairs: Vec<[Word; 5]>) {
+    match File::options().write(true).create(true).open(path) {
+        Err(err) => {
+            panic!("An error occurred while write to output file: {}", err)
+        },
+        Ok(f) => {
+            let mut f = BufWriter::new(f);
+            for pair in word_pairs {
+                writeln!(
+                    f,
+                    "{}\n{}\n{}\n{}\n{}\n",
+                    pair[0], pair[1], pair[2], pair[3], pair[4]
+                ).unwrap();
+            }
+        },
+    };
 }
 
 /// Convert strings to the abstract word::Word type.
 fn abstractify_words(word_list: Vec<String>) -> Vec<Word> {
-    let mut words: Vec<Word> = Vec::new();
-    for word_str in word_list.into_iter() {
-        match Word::from_string(word_str.clone()) {
-            Some(word) => {
+    let mut words: HashSet<Word> = HashSet::new();
+    let mut ignored = 0;
+    for word_str in word_list.iter() {
+        match Word::try_from(word_str) {
+            Ok(word) => {
                 // the word consisted of 5 unique, recognized letters
-                let mut ok = true;
-                for w in words.iter_mut() {
-                    if *w == word {
-                        // a word with the same signature (using the same 5 letters in any order) already exists.
-                        w.add_str(word_str); //  add the string to the word object. This means that the word will be treated as one
-                        ok = false; // during processing, speeding everything up, but if this word is part of a match, all possible
-                        break; // arrangements of these five letters that were in the word list will be displayed to the user.
-                    };
-                }
-                if ok {
-                    // the word was valid and did not yet exist in the words vec,
-                    words.push(word); //  so we have to add it. Vec::push is slow, but since the second part of my algorithm
-                }; // takes so much longer, this is almost insignificant and not worth optimizing out.
+
+                let x = words
+                    .take(&word)
+                    .map(|mut x| {
+                        x.add_word(&word);
+                        x
+                    })
+                    .unwrap_or(word);
+
+                words.insert(x);
             }
-            None => {
-                println!("Ignored word '{}'.", word_str);
+            Err(_) => {
+                //println!("Ignored word '{}'.", word_str);
+                ignored += 1;
             }
         };
     }
-    words
-}
 
-fn find_matches {
-
+    if ignored != 0 {
+        println!("Warning: Ignored {} words", ignored);
+    }
+    println!("Using {} words (+ {} anagrams/duplicates)", words.len(), word_list.len()-ignored-words.len());
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    words.into_iter().collect()
 }

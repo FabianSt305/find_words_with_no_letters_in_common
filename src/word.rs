@@ -1,75 +1,139 @@
-pub struct Word {
-    /// The original string used to create this word.
-    string: Vec<String>,
-    /// If this is true at a certain index, it means that that letter was used in the word. By definition, if this Word was creates using from_string, exactly five elements will be true, while all others are false.
-    letters: u32,
+/// Encodes which letters have been seen (0 = unseen, 1 = seen).
+///
+/// Bit layout:
+/// `0000 00zy xwvu tsrq ponm lkji hgfe dcba`
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Letters(u32);
+
+impl Letters {
+    pub fn new() -> Self {
+        Self { 0: 0 }
+    }
+
+    pub fn shares_letters(self, other: Self) -> bool {
+        (self.0 & other.0) != 0
+    }
 }
 
-const BIT_MASK_26: u32 = 0x03ffffff; // 0000 0011 1111 1111 1111 1111 1111 1111
+impl From<u32> for Letters {
+    fn from(x: u32) -> Self {
+        Self { 0: x }
+    }
+}
+
+impl std::ops::BitOr for Letters {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self { 0: self.0 | rhs.0 }
+    }
+}
+impl std::ops::BitOrAssign for Letters {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 = self.0 | rhs.0
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Word {
+    /// The original string used to create this word.
+    /// Multiple String if there are anagrams in the word list.
+    string: Vec<String>,
+
+    letters: Letters,
+}
 
 impl Word {
-    pub fn from_letters(l: u32) -> Self {
-        Self {
-            string: Vec::new(),
-            letters: l,
-        }
+    pub fn add_word(&mut self, other: &Self) {
+        self.string.extend_from_slice(&other.string)
     }
-    pub fn from_string(str: String) -> Option<Self> {
+}
+
+impl std::hash::Hash for Word {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.letters.hash(state);
+    }
+}
+
+pub enum StringToWordError {
+    BadLength,
+    UnknownChar,
+    DuplicateChar,
+}
+
+impl TryFrom<String> for Word {
+    type Error = StringToWordError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
         let mut out = Self {
-            string: vec![str],
-            letters: 0,
+            string: vec![value],
+            letters: Letters::new(),
         };
         let mut len = 0;
-        for char in out.string[0].chars() { // iterate over the word's utf-8 chars
-            match get_letter_index(char) { // see if the character is recognized, and if so, which letter it is
-                Some(index) => { // the letter was recognized
-                    let bit_mask = 1<<index;
-                    if out.letters & bit_mask != 0 {
-                        return None; // because a letter was used twice (using this word makes no sense)
+        for char in out.string[0].chars() {
+            match get_letter_index(char) {
+                None => {
+                    return Err(Self::Error::UnknownChar);
+                }
+                Some(index) => {
+                    // the letter was recognized
+                    let new_letter = Letters::from(1 << index);
+                    if out.letters.shares_letters(new_letter) {
+                        return Err(Self::Error::DuplicateChar);
                     };
-                    out.letters |= bit_mask;
+                    out.letters = out.letters | new_letter;
                     len += 1;
                     if len > 5 {
-                        return None; // because the word is too long
+                        return Err(Self::Error::BadLength);
                     }
-                },
-                None => { // unknown letter
-                    return None; // because the word contains unsupported characters
-                },
+                }
             };
-        };
-        if len < 5 { return None; }; // because the word is too short
-        Some(out) // word is valid, return it
+        }
+        if len != 5 {
+            return Err(Self::Error::BadLength);
+        }
+        Ok(out)
     }
+}
 
-    pub fn add_str(&mut self, str: String) {
-        self.string.push(str);
-    }
-    /*
-    pub fn used_letters(w1: &Self, w2: &Self, w3: &Self, w4: &Self, w5: &Self) -> u8 {
-        (w1.letters | w2.letters | w3.letters | w4.letters | w5.letters).count_ones() as u8
-    }
-    pub fn has_no_duplicates(w1: &Self, w2: &Self, w3: &Self, w4: &Self, w5: &Self) -> bool {
-        Self::used_letters(w1, w2, w3, w4, w5) == 25 // if 25 letters were used, since every word uses exactly 5 letters and duplicate letters will only add 1 to the count, there were no duplicates.
-    }
-    */
-    pub fn clone_letters(&self) -> Self {
-        Self { 
-            string: Vec::with_capacity(0),
-            letters: self.letters
+impl TryFrom<&String> for Word {
+    type Error = StringToWordError;
+
+    fn try_from(value: &String) -> Result<Self, Self::Error> {
+        let mut out = Self {
+            string: vec![value.clone()],
+            letters: Letters::new(),
+        };
+        let mut len = 0;
+        for char in out.string[0].chars() {
+            match get_letter_index(char) {
+                None => {
+                    return Err(Self::Error::UnknownChar);
+                }
+                Some(index) => {
+                    // the letter was recognized
+                    let new_letter = Letters::from(1 << index);
+                    if out.letters.shares_letters(new_letter) {
+                        return Err(Self::Error::DuplicateChar);
+                    };
+                    out.letters = out.letters | new_letter;
+                    len += 1;
+                    if len > 5 {
+                        return Err(Self::Error::BadLength);
+                    }
+                }
+            };
         }
-    }
-    pub fn num_shared_letters(&self, other: &Self) -> u8 {
-        (self.letters & other.letters).count_ones() as u8
-    }
-    pub fn shares_letters(&self, other: &Self) -> bool {
-        (self.letters & other.letters) != 0
-    }
-    pub fn combine_letters(&self, other: &Self) -> Self {
-        Self {
-            string: Vec::with_capacity(0),
-            letters: self.letters | other.letters,
+        if len != 5 {
+            return Err(Self::Error::BadLength);
         }
+        Ok(out)
+    }
+}
+
+impl From<&Word> for Letters {
+    fn from(word: &Word) -> Self {
+        word.letters
     }
 }
 
@@ -78,7 +142,9 @@ impl PartialEq for Word {
         self.letters == other.letters
     }
 }
+
 impl Eq for Word {}
+
 impl std::fmt::Display for Word {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         let mut text = String::new();
@@ -86,45 +152,15 @@ impl std::fmt::Display for Word {
             text += s;
             text += ", ";
         }
-        write!(formatter, "{}", text);
+        let _ = write!(formatter, "{}", text);
         Ok(())
     }
 }
 
-pub fn get_letter_index(letter: char) -> Option<usize> {
+fn get_letter_index(letter: char) -> Option<usize> {
     match letter {
-        'a' => Some(0),
-        'b' => Some(1),
-        'c' => Some(2),
-        'd' => Some(3),
-        'e' => Some(4),
-        'f' => Some(5),
-        'g' => Some(6),
-        'h' => Some(7),
-        'i' => Some(8),
-        'j' => Some(9),
-        'k' => Some(10),
-        'l' => Some(11),
-        'm' => Some(12),
-        'n' => Some(13),
-        'o' => Some(14),
-        'p' => Some(15),
-        'q' => Some(16),
-        'r' => Some(17),
-        's' => Some(18),
-        't' => Some(19),
-        'u' => Some(20),
-        'v' => Some(21),
-        'w' => Some(22),
-        'x' => Some(23),
-        'y' => Some(24),
-        'z' => Some(25),
+        'A'..='Z' => Some(letter as usize - 65),
+        'a'..='z' => Some(letter as usize - 97),
         _ => None,
     }
 }
-
-pub fn get_letter(index: usize) -> char {
-    letters[index]
-}
-
-const letters: [char;26] = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z'];
