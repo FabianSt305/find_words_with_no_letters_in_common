@@ -2,16 +2,13 @@ pub struct Word {
     /// The original string used to create this word.
     string: Vec<String>,
     /// If this is true at a certain index, it means that that letter was used in the word. By definition, if this Word was creates using from_string, exactly five elements will be true, while all others are false.
-    letters: [bool;26]
+    letters: u32,
 }
+
+const BIT_MASK_26: u32 = 0x03ffffff; // 0000 0011 1111 1111 1111 1111 1111 1111
+
 impl Word {
-    pub fn empty() -> Self {
-        Self {
-            string: Vec::new(),
-            letters: [false;26],
-        }
-    }
-    pub fn from_letters(l: [bool;26]) -> Self {
+    pub fn from_letters(l: u32) -> Self {
         Self {
             string: Vec::new(),
             letters: l,
@@ -20,16 +17,17 @@ impl Word {
     pub fn from_string(str: String) -> Option<Self> {
         let mut out = Self {
             string: vec![str],
-            letters: [false;26],
+            letters: 0,
         };
         let mut len = 0;
         for char in out.string[0].chars() { // iterate over the word's utf-8 chars
             match get_letter_index(char) { // see if the character is recognized, and if so, which letter it is
                 Some(index) => { // the letter was recognized
-                    if out.letters[index] {
+                    let bit_mask = 1<<index;
+                    if out.letters & bit_mask != 0 {
                         return None; // because a letter was used twice (using this word makes no sense)
                     };
-                    out.letters[index] = true;
+                    out.letters |= bit_mask;
                     len += 1;
                     if len > 5 {
                         return None; // because the word is too long
@@ -47,76 +45,37 @@ impl Word {
     pub fn add_str(&mut self, str: String) {
         self.string.push(str);
     }
-
+    /*
     pub fn used_letters(w1: &Self, w2: &Self, w3: &Self, w4: &Self, w5: &Self) -> u8 {
-        let mut used_letters = 0u8;
-        for i in 0..26 {
-            if w1.letters[i] || w2.letters[i] || w3.letters[i] || w4.letters[i] || w5.letters[i] {
-                used_letters += 1;
-            }
-        };
-        used_letters
+        (w1.letters | w2.letters | w3.letters | w4.letters | w5.letters).count_ones() as u8
     }
     pub fn has_no_duplicates(w1: &Self, w2: &Self, w3: &Self, w4: &Self, w5: &Self) -> bool {
         Self::used_letters(w1, w2, w3, w4, w5) == 25 // if 25 letters were used, since every word uses exactly 5 letters and duplicate letters will only add 1 to the count, there were no duplicates.
     }
-    pub fn as_u32(&self) -> u32 {
-        let mut o: u32 = 0;
-        for i in 0..26 {
-            o = o << 1; // shift left (also ensures that last bit is 0)
-            if self.letters[i] {
-                o += 1; // set last bit to 1
-            }
+    */
+    pub fn clone_letters(&self) -> Self {
+        Self { 
+            string: Vec::with_capacity(0),
+            letters: self.letters
         }
-        o
     }
-    pub fn clone_letters(&self) -> [bool;26] {
-        [
-            self.letters[0],
-            self.letters[1],
-            self.letters[2],
-            self.letters[3],
-            self.letters[4],
-            self.letters[5],
-            self.letters[6],
-            self.letters[7],
-            self.letters[8],
-            self.letters[9],
-            self.letters[10],
-            self.letters[11],
-            self.letters[12],
-            self.letters[13],
-            self.letters[14],
-            self.letters[15],
-            self.letters[16],
-            self.letters[17],
-            self.letters[18],
-            self.letters[19],
-            self.letters[20],
-            self.letters[21],
-            self.letters[22],
-            self.letters[23],
-            self.letters[24],
-            self.letters[25],
-        ]
+    pub fn num_shared_letters(&self, other: &Self) -> u8 {
+        (self.letters & other.letters).count_ones() as u8
     }
-    pub fn combine_letters(&mut self, other: &Self) -> u8 {
-        let mut changed = 0;
-        for i in 0..26 {
-            if self.letters[i] == false && other.letters[i] {
-                self.letters[i] = true;
-                changed += 1;
-            }
+    pub fn shares_letters(&self, other: &Self) -> bool {
+        (self.letters & other.letters) != 0
+    }
+    pub fn combine_letters(&self, other: &Self) -> Self {
+        Self {
+            string: Vec::with_capacity(0),
+            letters: self.letters | other.letters,
         }
-        changed
     }
 }
+
 impl PartialEq for Word {
     fn eq(&self, other: &Self) -> bool {
-        for i in 0..26 {
-            if self.letters[i] != other.letters[i] { return false; }
-        };
-        true
+        self.letters == other.letters
     }
 }
 impl Eq for Word {}
