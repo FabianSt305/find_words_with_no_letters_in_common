@@ -43,10 +43,25 @@ And yes, it does actually work. This is the output:
 
 # Output
 
-```
-cargo run --release -- -i words_alpha.txt
+In the console:
+```console
+>>> cargo run --release -- -i words_alpha.txt
+Initializing...
+
+Abstracting words... (timer starts here)
+
+Warning: Ignored 359930 words
+Using 5977 words (+ 4198 anagrams/duplicates)
+
+Searching for solutions...
+
+
+Done after 39.93 seconds.
+
+Found 538 word pairs
 ```
 
+In `output.txt`:
 ```
 vejoz, 
 hdqrs, 
